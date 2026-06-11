@@ -1,0 +1,48 @@
+{
+  "contractName": "Escrow",
+  "constructorInputs": [
+    { "name": "sellerPkh", "type": "bytes20" },
+    { "name": "buyerPkh", "type": "bytes20" },
+    { "name": "refundLocktime", "type": "int" }
+  ],
+  "abi": [
+    {
+      "name": "claim",
+      "inputs": [
+        { "name": "sellerPubkey", "type": "pubkey" },
+        { "name": "sellerSig", "type": "sig" }
+      ]
+    },
+    {
+      "name": "refund",
+      "inputs": [
+        { "name": "buyerPubkey", "type": "pubkey" },
+        { "name": "buyerSig", "type": "sig" }
+      ]
+    }
+  ],
+  "bytecode": "OP_3 OP_PICK OP_0 OP_NUMEQUAL OP_IF OP_4 OP_PICK OP_HASH160 OP_EQUALVERIFY OP_4 OP_ROLL OP_4 OP_ROLL OP_CHECKSIG OP_NIP OP_NIP OP_NIP OP_ELSE OP_3 OP_ROLL OP_1 OP_NUMEQUALVERIFY OP_ROT OP_CHECKLOCKTIMEVERIFY OP_DROP OP_2 OP_PICK OP_HASH160 OP_ROT OP_EQUALVERIFY OP_ROT OP_ROT OP_CHECKSIG OP_NIP OP_ENDIF",
+  "source": "pragma cashscript ^0.13.0;\r\n\r\ncontract Escrow(\r\n    bytes20 sellerPkh,\r\n    bytes20 buyerPkh,\r\n    int refundLocktime\r\n) {\r\n    function claim(pubkey sellerPubkey, sig sellerSig) {\r\n        require(hash160(sellerPubkey) == sellerPkh);\r\n        require(checkSig(sellerSig, sellerPubkey));\r\n    }\r\n\r\n    function refund(pubkey buyerPubkey, sig buyerSig) {\r\n        require(tx.time >= refundLocktime);\r\n        require(hash160(buyerPubkey) == buyerPkh);\r\n        require(checkSig(buyerSig, buyerPubkey));\r\n    }\r\n}",
+  "fingerprint": "80d878e30d384a1e77e20e5cd20ca885982b2263ff2c514cfb785e81d56c76d3",
+  "debug": {
+    "bytecode": "5379009c635479a988547a547aac77777767537a519d7bb1755279a97b887b7bac7768",
+    "sourceMap": "8:4:11:5;;;;;9:24:9:36;;:16::37:1;:8::52;10:25:10:34:0;;:36::48;;:8::51:1;8:55:11:5;;;:4;13::17::0;;;;14:27:14:41;:8::43:1;;15:24:15:35:0;;:16::36:1;:40::48:0;:8::50:1;16:25:16:33:0;:35::46;:8::49:1;13:54:17:5;3:0:18:1",
+    "logs": [],
+    "requires": [
+      { "ip": 11, "line": 9 },
+      { "ip": 17, "line": 10 },
+      { "ip": 26, "line": 14 },
+      { "ip": 32, "line": 15 },
+      { "ip": 36, "line": 16 }
+    ]
+  },
+  "compiler": {
+    "name": "cashc",
+    "version": "0.13.0",
+    "options": {
+      "enforceFunctionParameterTypes": true,
+      "enforceLocktimeGuard": true
+    }
+  },
+  "updatedAt": "2026-06-09T06:04:04.759Z"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "verify",
+  "version": "1.0.0",
+  "main": "verifier.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "express": "^5.2.1",
+    "mainnet-js": "^4.0.0-next.13"
+  }
+}

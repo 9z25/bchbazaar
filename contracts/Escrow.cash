@@ -1,0 +1,18 @@
+pragma cashscript ^0.13.0;
+
+contract Escrow(
+    bytes20 sellerPkh,
+    bytes20 buyerPkh,
+    int refundLocktime
+) {
+    function claim(pubkey sellerPubkey, sig sellerSig) {
+        require(hash160(sellerPubkey) == sellerPkh);
+        require(checkSig(sellerSig, sellerPubkey));
+    }
+
+    function refund(pubkey buyerPubkey, sig buyerSig) {
+        require(tx.time >= refundLocktime);
+        require(hash160(buyerPubkey) == buyerPkh);
+        require(checkSig(buyerSig, buyerPubkey));
+    }
+}
