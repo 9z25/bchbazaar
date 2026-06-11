@@ -604,7 +604,8 @@ func getUserProfile(c *gin.Context) {
 	var (
 		userID       uint64
 		username     string
-		pusdAddress  string
+		bchAddress   string
+		tokenAddress string
 		ratingAvg    float64
 		reviewCount  uint64
 		listingCount uint64
@@ -614,7 +615,8 @@ func getUserProfile(c *gin.Context) {
 		SELECT
 			u.id,
 			u.username,
-			u.pusd_address,
+			u.bch_address,
+			u.token_address,
 			COALESCE(AVG(r.rating), 0),
 			COUNT(DISTINCT r.id),
 			COUNT(DISTINCT l.id)
@@ -626,7 +628,8 @@ func getUserProfile(c *gin.Context) {
 	`, id).Scan(
 		&userID,
 		&username,
-		&pusdAddress,
+		&bchAddress,
+		&tokenAddress,
 		&ratingAvg,
 		&reviewCount,
 		&listingCount,
@@ -638,7 +641,16 @@ func getUserProfile(c *gin.Context) {
 	}
 
 	rows, err := db.Query(`
-		SELECT id, title, description, price_pusd, COALESCE(image_url, ''), created_at
+		SELECT
+			id,
+			title,
+			description,
+			price,
+			currency,
+			COALESCE(category, ''),
+			COALESCE(image_url, ''),
+			status,
+			created_at
 		FROM listings
 		WHERE user_id = ?
 		ORDER BY id DESC
@@ -657,12 +669,25 @@ func getUserProfile(c *gin.Context) {
 			listingID   uint64
 			title       string
 			description string
-			pricePUSD   float64
+			price       float64
+			currency    string
+			category    string
 			imageURL    string
+			status      string
 			createdAt   string
 		)
 
-		if err := rows.Scan(&listingID, &title, &description, &pricePUSD, &imageURL, &createdAt); err != nil {
+		if err := rows.Scan(
+			&listingID,
+			&title,
+			&description,
+			&price,
+			&currency,
+			&category,
+			&imageURL,
+			&status,
+			&createdAt,
+		); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -671,23 +696,26 @@ func getUserProfile(c *gin.Context) {
 			"id":          listingID,
 			"title":       title,
 			"description": description,
-			"price_pusd":  pricePUSD,
+			"price":       price,
+			"currency":    currency,
+			"category":    category,
 			"image_url":   imageURL,
+			"status":      status,
 			"created_at":  createdAt,
 		})
 	}
 
 	c.JSON(200, gin.H{
-		"id":            userID,
-		"username":      username,
-		"pusd_address":  pusdAddress,
-		"rating_avg":    ratingAvg,
-		"review_count":  reviewCount,
-		"listing_count": listingCount,
-		"listings":      listings,
+		"id":             userID,
+		"username":       username,
+		"bch_address":    bchAddress,
+		"token_address":  tokenAddress,
+		"rating_avg":     ratingAvg,
+		"review_count":   reviewCount,
+		"listing_count":  listingCount,
+		"listings":       listings,
 	})
 }
-
 type UpdateOrderStatusRequest struct {
 	Status string `json:"status"`
 }
