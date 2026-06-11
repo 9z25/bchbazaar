@@ -29,7 +29,6 @@ func connectDB() {
 
 func migrateDB() {
 	queries := []string{
-
 		`CREATE TABLE IF NOT EXISTS users (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			username VARCHAR(100) NOT NULL UNIQUE,
@@ -37,7 +36,12 @@ func migrateDB() {
 			bch_address VARCHAR(255) NOT NULL,
 			token_address VARCHAR(255) NOT NULL,
 
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			auth_nonce VARCHAR(100),
+			session_token VARCHAR(255),
+
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+			INDEX idx_session_token (session_token)
 		);`,
 
 		`CREATE TABLE IF NOT EXISTS listings (
@@ -54,6 +58,10 @@ func migrateDB() {
 			category VARCHAR(50),
 			image_url TEXT,
 
+			sale_type ENUM('fixed','auction') DEFAULT 'fixed',
+			auction_ends_at TIMESTAMP NULL,
+			starting_price DECIMAL(18,8) NULL,
+
 			status ENUM(
 				'active',
 				'sold',
@@ -69,6 +77,7 @@ func migrateDB() {
 			INDEX idx_currency (currency),
 			INDEX idx_category (category),
 			INDEX idx_status (status),
+			INDEX idx_sale_type (sale_type),
 
 			FOREIGN KEY (user_id)
 			REFERENCES users(id)
@@ -79,6 +88,7 @@ func migrateDB() {
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 
 			listing_id BIGINT NOT NULL,
+			buyer_user_id BIGINT,
 
 			buyer_address VARCHAR(255),
 			seller_address VARCHAR(255) NOT NULL,
@@ -99,6 +109,7 @@ func migrateDB() {
 				'shipped',
 				'completed',
 				'cancelled',
+				'expired',
 				'claimed',
 				'refunded'
 			) DEFAULT 'pending',
@@ -114,6 +125,7 @@ func migrateDB() {
 				ON UPDATE CURRENT_TIMESTAMP,
 
 			INDEX idx_listing_id (listing_id),
+			INDEX idx_buyer_user_id (buyer_user_id),
 			INDEX idx_status (status),
 			INDEX idx_txid (txid),
 			INDEX idx_contract_address (contract_address),
@@ -121,7 +133,11 @@ func migrateDB() {
 
 			FOREIGN KEY (listing_id)
 			REFERENCES listings(id)
-			ON DELETE CASCADE
+			ON DELETE CASCADE,
+
+			FOREIGN KEY (buyer_user_id)
+			REFERENCES users(id)
+			ON DELETE SET NULL
 		);`,
 
 		`CREATE TABLE IF NOT EXISTS messages (
@@ -155,6 +171,8 @@ func migrateDB() {
 			INDEX idx_seller_id (seller_id),
 			INDEX idx_reviewer_id (reviewer_id),
 
+			UNIQUE KEY uniq_review (seller_id, reviewer_id),
+
 			CHECK (rating >= 1 AND rating <= 5),
 
 			FOREIGN KEY (seller_id)
@@ -163,6 +181,25 @@ func migrateDB() {
 
 			FOREIGN KEY (reviewer_id)
 			REFERENCES users(id)
+			ON DELETE CASCADE
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS bids (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+			listing_id BIGINT NOT NULL,
+
+			bidder_address VARCHAR(255) NOT NULL,
+			amount DECIMAL(18,8) NOT NULL,
+			currency VARCHAR(20) NOT NULL,
+
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+			INDEX idx_listing_id (listing_id),
+			INDEX idx_amount (amount),
+
+			FOREIGN KEY (listing_id)
+			REFERENCES listings(id)
 			ON DELETE CASCADE
 		);`,
 	}
