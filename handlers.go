@@ -1350,3 +1350,182 @@ func verifySignature(address, message, signature string) bool {
 
 	return result.Valid
 }
+
+type OpenDisputeRequest struct {
+	Reason string `json:"reason"`
+}
+
+type ModeratorTxRequest struct {
+	Txid string `json:"txid"`
+}
+
+func openDispute(c *gin.Context) {
+	userID := c.MustGet("user_id").(uint64)
+	id := c.Param("id")
+
+	var req OpenDisputeRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Reason == "" {
+		c.JSON(400, gin.H{"error": "reason is required"})
+		return
+	}
+
+	var (
+		buyerUserID  uint64
+		sellerUserID uint64
+		status       string
+	)
+
+	err := db.QueryRow(`
+		SELECT o.buyer_user_id, l.user_id, o.status
+		FROM orders o
+		JOIN listings l ON l.id = o.listing_id
+		WHERE o.id = ?
+	`, id).Scan(&buyerUserID, &sellerUserID, &status)
+
+	if err != nil {
+		c.JSON(404, gin.H{"error": "order not found"})
+		return
+	}
+
+	if userID != buyerUserID && userID != sellerUserID {
+		c.JSON(403, gin.H{"error": "not part of this order"})
+		return
+	}
+
+	if status != "paid" && status != "shipped" && status != "completed" {
+		c.JSON(400, gin.H{"error": "order is not disputable"})
+		return
+	}
+
+	_, err = db.Exec(`
+		UPDATE orders
+		SET dispute_status = 'opened',
+		    dispute_reason = ?
+		WHERE id = ?
+	`, req.Reason, id)
+
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"status":         status,
+		"dispute_status": "opened",
+		"dispute_reason": req.Reason,
+	})
+}
+
+func recordModeratorRelease(c *gin.Context) {
+	userID := c.MustGet("user_id").(uint64)
+	id := c.Param("id")
+
+	var req ModeratorTxRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Txid == "" {
+		c.JSON(400, gin.H{"error": "txid is required"})
+		return
+	}
+
+	var moderatorUserID uint64
+	var disputeStatus string
+
+	err := db.QueryRow(`
+		SELECT moderator_user_id, dispute_status
+		FROM orders
+		WHERE id = ?
+	`, id).Scan(&moderatorUserID, &disputeStatus)
+
+	if err != nil {
+		c.JSON(404, gin.H{"error": "order not found"})
+		return
+	}
+
+	if userID != moderatorUserID {
+		c.JSON(403, gin.H{"error": "only moderator can record release"})
+		return
+	}
+
+	if disputeStatus != "opened" {
+		c.JSON(400, gin.H{"error": "dispute is not open"})
+		return
+	}
+
+	_, err = db.Exec(`
+		UPDATE orders
+		SET status = 'claimed',
+		    dispute_status = 'resolved',
+		    moderator_decision = 'release',
+		    moderator_txid = ?,
+		    claim_txid = ?
+		WHERE id = ?
+	`, req.Txid, req.Txid, id)
+
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"status":             "claimed",
+		"dispute_status":     "resolved",
+		"moderator_decision": "release",
+		"moderator_txid":     req.Txid,
+	})
+}
+
+func recordModeratorRefund(c *gin.Context) {
+	userID := c.MustGet("user_id").(uint64)
+	id := c.Param("id")
+
+	var req ModeratorTxRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Txid == "" {
+		c.JSON(400, gin.H{"error": "txid is required"})
+		return
+	}
+
+	var moderatorUserID uint64
+	var disputeStatus string
+
+	err := db.QueryRow(`
+		SELECT moderator_user_id, dispute_status
+		FROM orders
+		WHERE id = ?
+	`, id).Scan(&moderatorUserID, &disputeStatus)
+
+	if err != nil {
+		c.JSON(404, gin.H{"error": "order not found"})
+		return
+	}
+
+	if userID != moderatorUserID {
+		c.JSON(403, gin.H{"error": "only moderator can record refund"})
+		return
+	}
+
+	if disputeStatus != "opened" {
+		c.JSON(400, gin.H{"error": "dispute is not open"})
+		return
+	}
+
+	_, err = db.Exec(`
+		UPDATE orders
+		SET status = 'refunded',
+		    dispute_status = 'resolved',
+		    moderator_decision = 'refund',
+		    moderator_txid = ?,
+		    refund_txid = ?
+		WHERE id = ?
+	`, req.Txid, req.Txid, id)
+
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"status":             "refunded",
+		"dispute_status":     "resolved",
+		"moderator_decision": "refund",
+		"moderator_txid":     req.Txid,
+	})
+}

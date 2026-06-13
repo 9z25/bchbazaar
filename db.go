@@ -85,60 +85,85 @@ func migrateDB() {
 		);`,
 
 		`CREATE TABLE IF NOT EXISTS orders (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGINT AUTO_INCREMENT PRIMARY KEY,
 
-			listing_id BIGINT NOT NULL,
-			buyer_user_id BIGINT,
+		listing_id BIGINT NOT NULL,
+		buyer_user_id BIGINT,
 
-			buyer_address VARCHAR(255),
-			seller_address VARCHAR(255) NOT NULL,
+		buyer_address VARCHAR(255),
+		seller_address VARCHAR(255) NOT NULL,
 
-			payment_address VARCHAR(255),
-			contract_address VARCHAR(255),
+		payment_address VARCHAR(255),
+		contract_address VARCHAR(255),
 
-			seller_pkh VARCHAR(100),
-			buyer_pkh VARCHAR(100),
-			refund_locktime BIGINT,
+		seller_pkh VARCHAR(100),
+		buyer_pkh VARCHAR(100),
 
-			amount DECIMAL(18,8) NOT NULL,
-			currency VARCHAR(20) NOT NULL,
+		moderator_user_id BIGINT,
+		moderator_pkh VARCHAR(100),
 
-			status ENUM(
-				'pending',
-				'paid',
-				'shipped',
-				'completed',
-				'cancelled',
-				'expired',
-				'claimed',
-				'refunded'
-			) DEFAULT 'pending',
+		refund_locktime BIGINT,
 
-			txid VARCHAR(100),
-			claim_txid VARCHAR(100),
-			refund_txid VARCHAR(100),
+		amount DECIMAL(18,8) NOT NULL,
+		currency VARCHAR(20) NOT NULL,
 
-			expires_at TIMESTAMP NULL,
+		status ENUM(
+			'pending',
+			'paid',
+			'shipped',
+			'completed',
+			'cancelled',
+			'expired',
+			'claimed',
+			'refunded'
+		) DEFAULT 'pending',
 
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-				ON UPDATE CURRENT_TIMESTAMP,
+		dispute_status ENUM(
+			'none',
+			'opened',
+			'resolved'
+		) DEFAULT 'none',
 
-			INDEX idx_listing_id (listing_id),
-			INDEX idx_buyer_user_id (buyer_user_id),
-			INDEX idx_status (status),
-			INDEX idx_txid (txid),
-			INDEX idx_contract_address (contract_address),
-			INDEX idx_payment_address (payment_address),
+		dispute_reason TEXT,
 
-			FOREIGN KEY (listing_id)
-			REFERENCES listings(id)
-			ON DELETE CASCADE,
+		moderator_decision ENUM(
+			'none',
+			'release',
+			'refund'
+		) DEFAULT 'none',
 
-			FOREIGN KEY (buyer_user_id)
-			REFERENCES users(id)
-			ON DELETE SET NULL
-		);`,
+		txid VARCHAR(100),
+		claim_txid VARCHAR(100),
+		refund_txid VARCHAR(100),
+		moderator_txid VARCHAR(100),
+
+		expires_at TIMESTAMP NULL,
+
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			ON UPDATE CURRENT_TIMESTAMP,
+
+		INDEX idx_listing_id (listing_id),
+		INDEX idx_buyer_user_id (buyer_user_id),
+		INDEX idx_moderator_user_id (moderator_user_id),
+		INDEX idx_status (status),
+		INDEX idx_dispute_status (dispute_status),
+		INDEX idx_txid (txid),
+		INDEX idx_contract_address (contract_address),
+		INDEX idx_payment_address (payment_address),
+
+		FOREIGN KEY (listing_id)
+		REFERENCES listings(id)
+		ON DELETE CASCADE,
+
+		FOREIGN KEY (buyer_user_id)
+		REFERENCES users(id)
+		ON DELETE SET NULL,
+
+		FOREIGN KEY (moderator_user_id)
+		REFERENCES users(id)
+		ON DELETE SET NULL
+	);`,
 
 		`CREATE TABLE IF NOT EXISTS messages (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,

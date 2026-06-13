@@ -1,0 +1,30 @@
+pragma cashscript ^0.10.0;
+
+contract Escrow(
+    bytes20 sellerPkh,
+    bytes20 buyerPkh,
+    bytes20 feePkh,
+    int feeSats,
+    int refundLocktime
+) {
+    function claim(pubkey sellerPubkey, sig sellerSig) {
+        require(hash160(sellerPubkey) == sellerPkh);
+        require(checkSig(sellerSig, sellerPubkey));
+
+        // Output 0 = seller payment
+        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(sellerPkh));
+
+        // Output 1 = BCHBazaar fee
+        require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(feePkh));
+        require(tx.outputs[1].value >= feeSats);
+    }
+
+    function refund(pubkey buyerPubkey, sig buyerSig) {
+        require(tx.time >= refundLocktime);
+        require(hash160(buyerPubkey) == buyerPkh);
+        require(checkSig(buyerSig, buyerPubkey));
+
+        // Refund goes back to buyer
+        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(buyerPkh));
+    }
+}

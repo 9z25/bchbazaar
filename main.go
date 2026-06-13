@@ -38,6 +38,9 @@ func main() {
 	r.GET("/api/listings/:id/bids", listBids)
 	r.GET("/api/auth/nonce/:username", getAuthNonce)
 	r.POST("/api/auth/login", loginWithSignature)
+	r.POST("/api/orders/:id/dispute", authRequired, openDispute)
+	r.POST("/api/orders/:id/moderator-release", authRequired, recordModeratorRelease)
+	r.POST("/api/orders/:id/moderator-refund", authRequired, recordModeratorRefund)
 
 
 
