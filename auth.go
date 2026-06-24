@@ -17,12 +17,13 @@ func authRequired(c *gin.Context) {
 	}
 
 	var userID uint64
+	var role string
 
 	err := db.QueryRow(`
-		SELECT id
+		SELECT id, role
 		FROM users
 		WHERE session_token = ?
-	`, token).Scan(&userID)
+	`, token).Scan(&userID, &role)
 
 	if err == sql.ErrNoRows {
 		c.AbortWithStatusJSON(401, gin.H{
@@ -39,6 +40,7 @@ func authRequired(c *gin.Context) {
 	}
 
 	c.Set("user_id", userID)
+	c.Set("role", role)
 
 	c.Next()
 }

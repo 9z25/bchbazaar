@@ -1,9 +1,9 @@
 package main
 
 import (
+	"github.com/gin-gonic/gin"
 	"log"
 	"time"
-	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -19,10 +19,13 @@ func main() {
 
 	r.POST("/api/users", createUser)
 	r.GET("/api/listings", listListings)
+	r.GET("/api/moderators", authRequired, listModerators)
+	r.GET("/api/moderator/disputes", authRequired, listModeratorDisputes)
 	r.POST("/api/listings", authRequired, createListing)
 	r.GET("/api/listings/:id", getListing)
 	r.POST("/api/orders", authRequired, createOrder)
-    r.GET("/api/orders/:id", getOrder)
+	r.GET("/api/orders", authRequired, listOrders)
+	r.GET("/api/orders/:id", authRequired, getOrder)
 	r.POST("/api/messages", authRequired, createMessage)
 	r.GET("/api/messages/:listing_id", listMessages)
 	r.POST("/api/reviews", authRequired, createReview)
@@ -41,8 +44,13 @@ func main() {
 	r.POST("/api/orders/:id/dispute", authRequired, openDispute)
 	r.POST("/api/orders/:id/moderator-release", authRequired, recordModeratorRelease)
 	r.POST("/api/orders/:id/moderator-refund", authRequired, recordModeratorRefund)
-
-
+	r.GET("/api/me", authRequired, getMe)
+	r.GET("/api/me/notifications", authRequired, getMyNotifications)
+	r.PATCH("/api/me", authRequired, updateMe)
+	r.GET("/api/conversations", authRequired, listConversations)
+	r.POST("/api/conversations", authRequired, createConversation)
+	r.GET("/api/conversations/:id/messages", authRequired, listConversationMessages)
+	r.POST("/api/conversations/:id/messages", authRequired, createConversationMessage)
 
 	log.Println("BCHBazaar API running on :8080")
 
@@ -53,7 +61,7 @@ func main() {
 
 func healthCheck(c *gin.Context) {
 	c.JSON(200, gin.H{
-		"ok": true,
+		"ok":  true,
 		"app": "BCHBazaar",
 	})
 }
@@ -67,7 +75,6 @@ func startOrderWatcher() {
 		<-ticker.C
 	}
 }
-
 
 func verifyPendingOrders() {
 	rows, err := db.Query(`
@@ -102,9 +109,9 @@ func verifyPendingOrders() {
 func verifyOrderByID(orderID uint64) error {
 	var (
 		contractAddress string
-		amount         float64
-		currency       string
-		status         string
+		amount          float64
+		currency        string
+		status          string
 	)
 
 	err := db.QueryRow(`
@@ -134,16 +141,24 @@ func verifyOrderByID(orderID uint64) error {
 		return nil
 	}
 
-	_, err = db.Exec(`
+	result, err := db.Exec(`
 		UPDATE orders
 		SET status = 'paid', txid = ?
 		WHERE id = ? AND status = 'pending'
 	`, txid, orderID)
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		sendOrderEmailAsync(orderID, "paid")
+	}
+
+	return nil
 }
 
 type TxidRequest struct {
 	Txid string `json:"txid"`
 }
-

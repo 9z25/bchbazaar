@@ -13,20 +13,57 @@ app.post("/verify", async (req, res) => {
             signature
         } = req.body;
 
-        const valid = await mainnet.SignedMessage.verify(
+        const verification = await mainnet.SignedMessage.verify(
             message,
             signature,
             address
         );
 
         res.json({
-            valid
+            valid: verification.valid === true
         });
     } catch (err) {
         res.status(500).json({
             valid: false,
             error: err.message
         });
+    }
+});
+
+
+app.post("/token-payment", async (req, res) => {
+    try {
+        const { address, category, amount } = req.body;
+        if (!address || !category || amount === undefined) {
+            res.status(400).json({ paid: false, error: "address, category, and amount are required" });
+            return;
+        }
+
+        const required = BigInt(String(amount));
+        const watch = await mainnet.WatchWallet.watchOnly(address);
+        await watch.waitForUpdate({ timeout: 10000 }).catch(() => null);
+        const utxos = await watch.getUtxos();
+
+        let total = 0n;
+        let txid = "";
+        for (const utxo of utxos) {
+            if (utxo.token?.category === category) {
+                const tokenAmount = BigInt(utxo.token.amount || 0n);
+                total += tokenAmount;
+                if (!txid && tokenAmount > 0n) txid = utxo.txid || utxo.tx_hash || "";
+            }
+        }
+
+        await watch.stop().catch(() => null);
+
+        res.json({
+            paid: total >= required,
+            txid,
+            token_amount: total.toString(),
+            required: required.toString()
+        });
+    } catch (err) {
+        res.status(500).json({ paid: false, error: err.message });
     }
 });
 

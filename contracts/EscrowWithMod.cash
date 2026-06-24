@@ -1,0 +1,69 @@
+pragma cashscript ^0.13.0;
+
+contract BCHBazaarEscrow(
+    bytes20 sellerPkh,
+    bytes20 buyerPkh,
+    bytes20 moderatorPkh,
+    bytes20 feePkh,
+    int refundLocktime,
+    int amount,
+    int feeAmount
+) {
+    function sellerClaim(
+        pubkey sellerPubkey,
+        sig sellerSig
+    ) {
+        require(hash160(sellerPubkey) == sellerPkh);
+        require(checkSig(sellerSig, sellerPubkey));
+
+        // output 0 = seller payment
+        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(sellerPkh));
+        require(tx.outputs[0].value >= amount - feeAmount);
+
+        // output 1 = marketplace fee
+        require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(feePkh));
+        require(tx.outputs[1].value >= feeAmount);
+    }
+
+    function buyerRefundAfterTimeout(
+        pubkey buyerPubkey,
+        sig buyerSig
+    ) {
+        require(hash160(buyerPubkey) == buyerPkh);
+        require(checkSig(buyerSig, buyerPubkey));
+
+        require(tx.time >= refundLocktime);
+
+        // refund buyer
+        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(buyerPkh));
+        require(tx.outputs[0].value >= amount);
+    }
+
+    function moderatorReleaseToSeller(
+        pubkey moderatorPubkey,
+        sig moderatorSig
+    ) {
+        require(hash160(moderatorPubkey) == moderatorPkh);
+        require(checkSig(moderatorSig, moderatorPubkey));
+
+        // output 0 = seller payment
+        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(sellerPkh));
+        require(tx.outputs[0].value >= amount - feeAmount);
+
+        // output 1 = marketplace fee
+        require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(feePkh));
+        require(tx.outputs[1].value >= feeAmount);
+    }
+
+    function moderatorRefundToBuyer(
+        pubkey moderatorPubkey,
+        sig moderatorSig
+    ) {
+        require(hash160(moderatorPubkey) == moderatorPkh);
+        require(checkSig(moderatorSig, moderatorPubkey));
+
+        // refund buyer
+        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(buyerPkh));
+        require(tx.outputs[0].value >= amount);
+    }
+}

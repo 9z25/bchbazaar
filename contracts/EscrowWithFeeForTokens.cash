@@ -1,0 +1,137 @@
+pragma cashscript ^0.13.0;
+
+contract BCHBazaarEscrow(
+    bytes20 sellerPkh,
+    bytes20 buyerPkh,
+    bytes20 moderatorPkh,
+    bytes20 feePkh,
+
+    // 0x for BCH orders.
+    // PUSD token category for PUSD orders.
+    bytes tokenCategory,
+
+    int refundLocktime,
+
+    // BCH order: amount = sats
+    // PUSD order: amount = token base units
+    int amount,
+
+    // BCH order: feeAmount = sats
+    // PUSD order: feeAmount = token base units
+    int feeAmount,
+
+    // Dust used for token outputs.
+    // For BCH orders this can still be 0.
+    int tokenDust
+) {
+    function sellerClaim(
+        pubkey sellerPubkey,
+        sig sellerSig
+    ) {
+        require(hash160(sellerPubkey) == sellerPkh);
+        require(checkSig(sellerSig, sellerPubkey));
+
+        if (tokenCategory == 0x) {
+            // BCH order
+            require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(sellerPkh));
+            require(tx.outputs[0].value >= amount - feeAmount);
+
+            if (feeAmount > 0) {
+                require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(feePkh));
+                require(tx.outputs[1].value >= feeAmount);
+            }
+        } else {
+            // PUSD / CashToken order
+
+            // output 0 = seller token payment
+            require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(sellerPkh));
+            require(tx.outputs[0].value >= tokenDust);
+            require(tx.outputs[0].tokenCategory == tokenCategory);
+            require(tx.outputs[0].tokenAmount >= amount - feeAmount);
+
+            // output 1 = marketplace token fee
+            if (feeAmount > 0) {
+                require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(feePkh));
+                require(tx.outputs[1].value >= tokenDust);
+                require(tx.outputs[1].tokenCategory == tokenCategory);
+                require(tx.outputs[1].tokenAmount >= feeAmount);
+            }
+        }
+    }
+
+    function buyerRefundAfterTimeout(
+        pubkey buyerPubkey,
+        sig buyerSig
+    ) {
+        require(hash160(buyerPubkey) == buyerPkh);
+        require(checkSig(buyerSig, buyerPubkey));
+        require(tx.time >= refundLocktime);
+
+        if (tokenCategory == 0x) {
+            // BCH refund
+            require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(buyerPkh));
+            require(tx.outputs[0].value >= amount);
+        } else {
+            // Token refund
+            require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(buyerPkh));
+            require(tx.outputs[0].value >= tokenDust);
+            require(tx.outputs[0].tokenCategory == tokenCategory);
+            require(tx.outputs[0].tokenAmount >= amount);
+        }
+    }
+
+    function moderatorReleaseToSeller(
+        pubkey moderatorPubkey,
+        sig moderatorSig
+    ) {
+        require(hash160(moderatorPubkey) == moderatorPkh);
+        require(checkSig(moderatorSig, moderatorPubkey));
+
+        if (tokenCategory == 0x) {
+            // BCH order
+            require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(sellerPkh));
+            require(tx.outputs[0].value >= amount - feeAmount);
+
+            if (feeAmount > 0) {
+                require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(feePkh));
+                require(tx.outputs[1].value >= feeAmount);
+            }
+        } else {
+            // PUSD / CashToken order
+
+            // output 0 = seller token payment
+            require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(sellerPkh));
+            require(tx.outputs[0].value >= tokenDust);
+            require(tx.outputs[0].tokenCategory == tokenCategory);
+            require(tx.outputs[0].tokenAmount >= amount - feeAmount);
+
+            // output 1 = marketplace token fee
+            if (feeAmount > 0) {
+                require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(feePkh));
+                require(tx.outputs[1].value >= tokenDust);
+                require(tx.outputs[1].tokenCategory == tokenCategory);
+                require(tx.outputs[1].tokenAmount >= feeAmount);
+            }
+        }
+    }
+
+    function moderatorRefundToBuyer(
+        pubkey moderatorPubkey,
+        sig moderatorSig
+    ) {
+        require(hash160(moderatorPubkey) == moderatorPkh);
+        require(checkSig(moderatorSig, moderatorPubkey));
+
+        if (tokenCategory == 0x) {
+            // BCH refund
+            require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(buyerPkh));
+            require(tx.outputs[0].value >= amount);
+        } else {
+            // Token refund
+            require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(buyerPkh));
+            require(tx.outputs[0].value >= tokenDust);
+            require(tx.outputs[0].tokenCategory == tokenCategory);
+            require(tx.outputs[0].tokenAmount >= amount);
+        }
+    }
+}
