@@ -12,7 +12,7 @@ var db *sql.DB
 func connectDB() {
 	var err error
 
-	dsn := "bchbazaar:password@tcp(127.0.0.1:3306)/bchbazaar?parseTime=true"
+	dsn := "bchbazaar:your_strong_password_here@tcp(127.0.0.1:3306)/bchbazaar?parseTime=true"
 
 	db, err = sql.Open("mysql", dsn)
 	if err != nil {

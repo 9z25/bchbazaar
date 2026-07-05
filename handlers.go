@@ -292,7 +292,7 @@ func listListings(c *gin.Context) {
 			l.status
 		FROM listings l
 		JOIN users u ON u.id = l.user_id
-		WHERE 1=1
+		WHERE COALESCE(l.status, 'active') = 'active'
 	`
 
 	args := []any{}
@@ -1322,7 +1322,9 @@ func getUserProfile(c *gin.Context) {
 			COUNT(DISTINCT l.id)
 		FROM users u
 		LEFT JOIN reviews r ON r.seller_id = u.id
-		LEFT JOIN listings l ON l.user_id = u.id
+		LEFT JOIN listings l 
+			ON l.user_id = u.id
+			AND (l.status IS NULL OR l.status = 'sold')
 		WHERE u.id = ?
 		GROUP BY u.id
 	`, id).Scan(
