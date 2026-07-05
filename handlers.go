@@ -1324,9 +1324,9 @@ func getUserProfile(c *gin.Context) {
 		LEFT JOIN reviews r ON r.seller_id = u.id
 		LEFT JOIN listings l 
 			ON l.user_id = u.id
-			AND (l.status IS 'active' OR l.status = 'sold')
+			AND l.status IN ('active', 'sold')
 		WHERE u.id = ?
-		GROUP BY u.id
+		GROUP BY u.id;
 	`, id).Scan(
 		&userID,
 		&username,
