@@ -1317,16 +1317,28 @@ func getUserProfile(c *gin.Context) {
 			u.username,
 			u.bch_address,
 			u.token_address,
-			COALESCE(AVG(r.rating), 0),
-			COUNT(DISTINCT r.id),
-			COUNT(DISTINCT l.id)
+
+			COALESCE((
+				SELECT AVG(r.rating)
+				FROM reviews r
+				WHERE r.seller_id = u.id
+			), 0) AS rating_avg,
+
+			(
+				SELECT COUNT(*)
+				FROM reviews r
+				WHERE r.seller_id = u.id
+			) AS review_count,
+
+			(
+				SELECT COUNT(*)
+				FROM listings l
+				WHERE l.user_id = u.id
+				AND COALESCE(l.status, 'active') IN ('active', 'sold')
+			) AS listing_count
+
 		FROM users u
-		LEFT JOIN reviews r ON r.seller_id = u.id
-		LEFT JOIN listings l 
-		ON l.user_id = u.id
-		AND COALESCE(l.status, 'active') IN ('active', 'sold')
 		WHERE u.id = ?
-		GROUP BY u.id;
 	`, id).Scan(
 		&userID,
 		&username,
