@@ -1323,8 +1323,8 @@ func getUserProfile(c *gin.Context) {
 		FROM users u
 		LEFT JOIN reviews r ON r.seller_id = u.id
 		LEFT JOIN listings l 
-			ON l.user_id = u.id
-			AND l.status IN ('active', 'sold')
+		ON l.user_id = u.id
+		AND COALESCE(l.status, 'active') IN ('active', 'sold')
 		WHERE u.id = ?
 		GROUP BY u.id;
 	`, id).Scan(
@@ -1352,10 +1352,11 @@ func getUserProfile(c *gin.Context) {
 			COALESCE(category, ''),
 			COALESCE(location, ''),
 			COALESCE(image_url, ''),
-			status,
+			COALESCE(status, 'active'),
 			created_at
 		FROM listings
 		WHERE user_id = ?
+		AND COALESCE(status, 'active') IN ('active', 'sold')
 		ORDER BY id DESC
 	`, id)
 
