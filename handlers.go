@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"math"
+	"html"
 )
 
 type CreateUserRequest struct {
@@ -2762,4 +2763,168 @@ func getMyNotifications(c *gin.Context) {
 		"unread_messages": unreadMessages,
 		"seller_actions":  sellerActions,
 	})
+}
+
+func shareListingPage(c *gin.Context) {
+	id := c.Param("id")
+
+	var (
+		listingID   uint64
+		title       string
+		description string
+		price       float64
+		currency    string
+		location    string
+		imageURL    string
+		seller      string
+	)
+
+	err := db.QueryRow(`
+		SELECT
+			l.id,
+			l.title,
+			l.description,
+			l.price,
+			l.currency,
+			COALESCE(l.location, ''),
+			COALESCE(l.image_url, ''),
+			u.username
+		FROM listings l
+		JOIN users u ON u.id = l.user_id
+		WHERE l.id = ?
+		  AND COALESCE(l.status, 'active') IN ('active', 'sold')
+		LIMIT 1
+	`, id).Scan(
+		&listingID,
+		&title,
+		&description,
+		&price,
+		&currency,
+		&location,
+		&imageURL,
+		&seller,
+	)
+
+	if err != nil {
+		c.String(404, "Listing not found")
+		return
+	}
+
+	firstImage := firstListingImage(imageURL)
+
+	shareURL := "https://bchbazaar.com/l/" + id
+	appURL := "https://bchbazaar.com/#/listing/" + id
+
+	ogImage := "https://bchbazaar.com/logo-card.png"
+	if firstImage != "" {
+		ogImage = absoluteBCHBazaarURL(firstImage)
+	}
+
+	priceText := formatSharePrice(price, currency)
+
+	ogTitle := title + " - " + priceText
+	ogDescription := description
+	if location != "" {
+		ogDescription += " | " + location
+	}
+	if seller != "" {
+		ogDescription += " | Seller: " + seller
+	}
+
+	if len(ogDescription) > 220 {
+		ogDescription = ogDescription[:220] + "..."
+	}
+
+	html := fmt.Sprintf(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>%s</title>
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BCHBazaar">
+  <meta property="og:title" content="%s">
+  <meta property="og:description" content="%s">
+  <meta property="og:image" content="%s">
+  <meta property="og:url" content="%s">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="%s">
+  <meta name="twitter:description" content="%s">
+  <meta name="twitter:image" content="%s">
+
+  <meta http-equiv="refresh" content="0; url=%s">
+  <script>
+    window.location.replace(%q);
+  </script>
+</head>
+<body>
+  <h1>%s</h1>
+  <p>%s</p>
+  <p><a href="%s">View listing on BCHBazaar</a></p>
+</body>
+</html>`,
+		htmlEscape(ogTitle),
+		htmlEscape(ogTitle),
+		htmlEscape(ogDescription),
+		htmlEscape(ogImage),
+		htmlEscape(shareURL),
+
+		htmlEscape(ogTitle),
+		htmlEscape(ogDescription),
+		htmlEscape(ogImage),
+
+		htmlEscape(appURL),
+		appURL,
+
+		htmlEscape(title),
+		htmlEscape(ogDescription),
+		htmlEscape(appURL),
+	)
+
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.String(200, html)
+}
+
+func htmlEscape(value string) string {
+	return html.EscapeString(value)
+}
+
+func firstListingImage(imageURL string) string {
+	parts := strings.Split(imageURL, ",")
+
+	for _, part := range parts {
+		clean := strings.TrimSpace(part)
+		if clean != "" {
+			return clean
+		}
+	}
+
+	return ""
+}
+
+func absoluteBCHBazaarURL(path string) string {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+
+	if strings.HasPrefix(path, "/") {
+		return "https://bchbazaar.com" + path
+	}
+
+	return "https://bchbazaar.com/" + path
+}
+
+func formatSharePrice(price float64, currency string) string {
+	cur := strings.ToUpper(strings.TrimSpace(currency))
+
+	if cur == "PUSD" {
+		return fmt.Sprintf("%.2f PUSD", price)
+	}
+
+	if cur == "BCH" {
+		return fmt.Sprintf("%.8f BCH", price)
+	}
+
+	return fmt.Sprintf("%g %s", price, cur)
 }
