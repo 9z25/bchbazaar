@@ -2836,37 +2836,45 @@ func shareListingPage(c *gin.Context) {
 	}
 
 	html := fmt.Sprintf(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>%s</title>
+	<html prefix="og: https://ogp.me/ns#">
+	<head>
+	<meta charset="utf-8">
+	<title>%s</title>
 
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="BCHBazaar">
-  <meta property="og:title" content="%s">
-  <meta property="og:description" content="%s">
-  <meta property="og:image" content="%s">
-  <meta property="og:url" content="%s">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="BCHBazaar">
+	<meta property="og:title" content="%s">
+	<meta property="og:description" content="%s">
+	<meta property="og:image" content="%s">
+	<meta property="og:image:secure_url" content="%s">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:url" content="%s">
 
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="%s">
-  <meta name="twitter:description" content="%s">
-  <meta name="twitter:image" content="%s">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="%s">
+	<meta name="twitter:description" content="%s">
+	<meta name="twitter:image" content="%s">
 
-  <meta http-equiv="refresh" content="0; url=%s">
-  <script>
-    window.location.replace(%q);
-  </script>
-</head>
-<body>
-  <h1>%s</h1>
-  <p>%s</p>
-  <p><a href="%s">View listing on BCHBazaar</a></p>
-</body>
-</html>`,
+	<link rel="canonical" href="%s">
+	</head>
+	<body>
+	<h1>%s</h1>
+	<p>%s</p>
+	<p><a href="%s">View listing on BCHBazaar</a></p>
+
+	<script>
+		setTimeout(function () {
+		window.location.replace(%q);
+		}, 700);
+	</script>
+	</body>
+	</html>`,
 		htmlEscape(ogTitle),
+
 		htmlEscape(ogTitle),
 		htmlEscape(ogDescription),
+		htmlEscape(ogImage),
 		htmlEscape(ogImage),
 		htmlEscape(shareURL),
 
@@ -2874,12 +2882,12 @@ func shareListingPage(c *gin.Context) {
 		htmlEscape(ogDescription),
 		htmlEscape(ogImage),
 
-		htmlEscape(appURL),
-		appURL,
+		htmlEscape(shareURL),
 
 		htmlEscape(title),
 		htmlEscape(ogDescription),
 		htmlEscape(appURL),
+		appURL,
 	)
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
