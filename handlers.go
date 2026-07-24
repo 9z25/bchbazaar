@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"html"
+	"math"
 	"net/http"
 	"strings"
 	"time"
-	"math"
-	"html"
 )
 
 type CreateUserRequest struct {
@@ -22,16 +22,23 @@ type CreateUserRequest struct {
 }
 
 type CreateListingRequest struct {
-	UserID          uint64  `json:"user_id"`
-	Title           string  `json:"title"`
-	Description     string  `json:"description"`
-	Price           float64 `json:"price"`
-	Currency        string  `json:"currency"`
-	ImageURL        string  `json:"image_url"`
-	Category        string  `json:"category"`
-	Location        string  `json:"location"`
-	ModeratorUserID uint64  `json:"moderator_user_id"`
-	ModeratorPKH    string  `json:"moderator_pkh"`
+	UserID                     uint64  `json:"user_id"`
+	Title                      string  `json:"title"`
+	Description                string  `json:"description"`
+	Price                      float64 `json:"price"`
+	Currency                   string  `json:"currency"`
+	ImageURL                   string  `json:"image_url"`
+	Category                   string  `json:"category"`
+	Location                   string  `json:"location"`
+	ModeratorUserID            uint64  `json:"moderator_user_id"`
+	ModeratorPKH               string  `json:"moderator_pkh"`
+	ShipsFromCountry           string  `json:"ships_from_country"`
+	DomesticShippingType       string  `json:"domestic_shipping_type"`
+	DomesticShippingPrice      float64 `json:"domestic_shipping_price"`
+	InternationalShippingType  string  `json:"international_shipping_type"`
+	InternationalShippingPrice float64 `json:"international_shipping_price"`
+	ShippingCurrency           string  `json:"shipping_currency"`
+	ShippingNotes              string  `json:"shipping_notes"`
 }
 
 const MarketplaceFeeBps uint64 = 250 // 2.5%
@@ -41,7 +48,7 @@ const MarketplaceFeePKH = "0c67ad9176ee207e2c0020a11baf563db3595fbd"
 const MarketplaceFeeAddress = "bitcoincash:qqxx0tv3wmhzql3vqqs2zxa02c7mxk2lh5q0n2yach"
 
 // Replace this with the actual tokenaddr version of the same address
-const MarketplaceFeeTokenAddress = "bitcoincash:zqxx0tv3wmhzql3vqqs2zxa02c7mxk2lh589q52m8y" 
+const MarketplaceFeeTokenAddress = "bitcoincash:zqxx0tv3wmhzql3vqqs2zxa02c7mxk2lh589q52m8y"
 
 const PUSDCategory = "2469acc5afa4b10cb5b5c04afb89c3a3ffd61c5da9c01e26d00951cae2a02544"
 
@@ -232,6 +239,51 @@ func createListing(c *gin.Context) {
 		return
 	}
 
+	req.Currency = normalizeCurrency(req.Currency)
+	req.ShippingCurrency = normalizeCurrency(req.ShippingCurrency)
+
+	if req.ShippingCurrency == "" {
+		req.ShippingCurrency = req.Currency
+	}
+
+	req.DomesticShippingType = strings.ToLower(strings.TrimSpace(req.DomesticShippingType))
+	req.InternationalShippingType = strings.ToLower(strings.TrimSpace(req.InternationalShippingType))
+
+	if req.DomesticShippingType == "" {
+		req.DomesticShippingType = "none"
+	}
+
+	if req.InternationalShippingType == "" {
+		req.InternationalShippingType = "none"
+	}
+
+	validShippingType := func(t string) bool {
+		return t == "none" || t == "free" || t == "flat" || t == "calculated"
+	}
+
+	if !validShippingType(req.DomesticShippingType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid domestic_shipping_type"})
+		return
+	}
+
+	if !validShippingType(req.InternationalShippingType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid international_shipping_type"})
+		return
+	}
+
+	if req.DomesticShippingPrice < 0 || req.InternationalShippingPrice < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "shipping price cannot be negative"})
+		return
+	}
+
+	if req.DomesticShippingType != "flat" {
+		req.DomesticShippingPrice = 0
+	}
+
+	if req.InternationalShippingType != "flat" {
+		req.InternationalShippingPrice = 0
+	}
+
 	var moderatorUserID any
 	if req.ModeratorUserID != 0 {
 		var role string
@@ -240,26 +292,66 @@ func createListing(c *gin.Context) {
 			FROM users
 			WHERE id = ?
 		`, req.ModeratorUserID).Scan(&role)
+
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "moderator not found"})
 			return
 		}
+
 		if role != "moderator" && role != "admin" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "selected user is not a moderator"})
 			return
 		}
+
 		if req.ModeratorPKH == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "moderator_pkh is required"})
 			return
 		}
+
 		moderatorUserID = req.ModeratorUserID
 	}
 
 	_, err := db.Exec(`
 		INSERT INTO listings
-		(user_id, title, description, price, currency, category, location, image_url, moderator_user_id, moderator_pkh)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, userID, req.Title, req.Description, req.Price, req.Currency, req.Category, req.Location, req.ImageURL, moderatorUserID, req.ModeratorPKH)
+		(
+			user_id,
+			title,
+			description,
+			price,
+			currency,
+			category,
+			location,
+			image_url,
+			ships_from_country,
+			domestic_shipping_type,
+			domestic_shipping_price,
+			international_shipping_type,
+			international_shipping_price,
+			shipping_currency,
+			shipping_notes,
+			moderator_user_id,
+			moderator_pkh
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		userID,
+		req.Title,
+		req.Description,
+		req.Price,
+		req.Currency,
+		req.Category,
+		req.Location,
+		req.ImageURL,
+		req.ShipsFromCountry,
+		req.DomesticShippingType,
+		req.DomesticShippingPrice,
+		req.InternationalShippingType,
+		req.InternationalShippingPrice,
+		req.ShippingCurrency,
+		req.ShippingNotes,
+		moderatorUserID,
+		req.ModeratorPKH,
+	)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -270,10 +362,10 @@ func createListing(c *gin.Context) {
 }
 
 func listListings(c *gin.Context) {
-	currency := c.Query("currency")
-	search := c.Query("search")
-	sellerID := c.Query("seller")
-	category := c.Query("category")
+	currencyFilter := normalizeCurrency(c.Query("currency"))
+	search := strings.TrimSpace(c.Query("search"))
+	sellerID := strings.TrimSpace(c.Query("seller"))
+	category := strings.TrimSpace(c.Query("category"))
 
 	query := `
 		SELECT
@@ -290,7 +382,15 @@ func listListings(c *gin.Context) {
 			l.moderator_user_id,
 			COALESCE(l.moderator_pkh, ''),
 			l.created_at,
-			l.status
+			COALESCE(l.status, 'active'),
+
+			COALESCE(l.ships_from_country, ''),
+			COALESCE(l.domestic_shipping_type, 'none'),
+			COALESCE(l.domestic_shipping_price, 0),
+			COALESCE(l.international_shipping_type, 'none'),
+			COALESCE(l.international_shipping_price, 0),
+			COALESCE(l.shipping_currency, l.currency),
+			COALESCE(l.shipping_notes, '')
 		FROM listings l
 		JOIN users u ON u.id = l.user_id
 		WHERE COALESCE(l.status, 'active') = 'active'
@@ -298,9 +398,9 @@ func listListings(c *gin.Context) {
 
 	args := []any{}
 
-	if currency != "" {
+	if currencyFilter != "" {
 		query += " AND l.currency = ?"
-		args = append(args, currency)
+		args = append(args, currencyFilter)
 	}
 
 	if sellerID != "" {
@@ -313,6 +413,7 @@ func listListings(c *gin.Context) {
 		like := "%" + search + "%"
 		args = append(args, like, like)
 	}
+
 	if category != "" {
 		query += " AND l.category = ?"
 		args = append(args, category)
@@ -327,24 +428,31 @@ func listListings(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var listings []gin.H
+	listings := []gin.H{}
 
 	for rows.Next() {
 		var (
-			id            uint64
-			userID        uint64
-			username      string
-			title         string
-			description   string
-			price         float64
-			currency      string
-			categoryValue string
-			location      string
-			imageURL      string
-			moderatorID   sql.NullInt64
-			moderatorPKH  string
-			createdAt     string
-			status        string
+			id                         uint64
+			userID                     uint64
+			username                   string
+			title                      string
+			description                string
+			price                      float64
+			listingCurrency            string
+			categoryValue              string
+			location                   string
+			imageURL                   string
+			moderatorID                sql.NullInt64
+			moderatorPKH               string
+			createdAt                  string
+			status                     string
+			shipsFromCountry           string
+			domesticShippingType       string
+			domesticShippingPrice      float64
+			internationalShippingType  string
+			internationalShippingPrice float64
+			shippingCurrency           string
+			shippingNotes              string
 		)
 
 		if err := rows.Scan(
@@ -354,7 +462,7 @@ func listListings(c *gin.Context) {
 			&title,
 			&description,
 			&price,
-			&currency,
+			&listingCurrency,
 			&categoryValue,
 			&location,
 			&imageURL,
@@ -362,9 +470,21 @@ func listListings(c *gin.Context) {
 			&moderatorPKH,
 			&createdAt,
 			&status,
+			&shipsFromCountry,
+			&domesticShippingType,
+			&domesticShippingPrice,
+			&internationalShippingType,
+			&internationalShippingPrice,
+			&shippingCurrency,
+			&shippingNotes,
 		); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
+		}
+
+		var moderatorUserID any
+		if moderatorID.Valid {
+			moderatorUserID = moderatorID.Int64
 		}
 
 		listings = append(listings, gin.H{
@@ -374,15 +494,28 @@ func listListings(c *gin.Context) {
 			"title":             title,
 			"description":       description,
 			"price":             price,
-			"currency":          currency,
+			"currency":          listingCurrency,
 			"category":          categoryValue,
 			"location":          location,
 			"image_url":         imageURL,
-			"moderator_user_id": moderatorID.Int64,
+			"moderator_user_id": moderatorUserID,
 			"moderator_pkh":     moderatorPKH,
 			"created_at":        createdAt,
 			"status":            status,
+
+			"ships_from_country":           shipsFromCountry,
+			"domestic_shipping_type":       domesticShippingType,
+			"domestic_shipping_price":      domesticShippingPrice,
+			"international_shipping_type":  internationalShippingType,
+			"international_shipping_price": internationalShippingPrice,
+			"shipping_currency":            shippingCurrency,
+			"shipping_notes":               shippingNotes,
 		})
+	}
+
+	if err := rows.Err(); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(200, listings)
@@ -390,8 +523,6 @@ func listListings(c *gin.Context) {
 
 func getListing(c *gin.Context) {
 	id := c.Param("id")
-
-	var listing gin.H = gin.H{}
 
 	row := db.QueryRow(`
 		SELECT 
@@ -411,7 +542,14 @@ func getListing(c *gin.Context) {
 			COALESCE(l.moderator_pkh, ''),
 			COALESCE(m.username, ''),
 			l.created_at,
-			l.status
+			COALESCE(l.status, 'active'),
+			COALESCE(l.ships_from_country, ''),
+			COALESCE(l.domestic_shipping_type, 'none'),
+			COALESCE(l.domestic_shipping_price, 0),
+			COALESCE(l.international_shipping_type, 'none'),
+			COALESCE(l.international_shipping_price, 0),
+			COALESCE(NULLIF(l.shipping_currency, ''), l.currency),
+			COALESCE(l.shipping_notes, '')
 		FROM listings l
 		JOIN users u ON u.id = l.user_id
 		LEFT JOIN users m ON m.id = l.moderator_user_id
@@ -419,23 +557,30 @@ func getListing(c *gin.Context) {
 	`, id)
 
 	var (
-		listingID    uint64
-		userID       uint64
-		username     string
-		bchAddress   string
-		tokenAddress string
-		title        string
-		description  string
-		price        float64
-		currency     string
-		category     string
-		location     string
-		imageURL     string
-		moderatorID  sql.NullInt64
-		moderatorPKH string
-		moderator    string
-		createdAt    string
-		status       string
+		listingID                  uint64
+		userID                     uint64
+		username                   string
+		bchAddress                 string
+		tokenAddress               string
+		title                      string
+		description                string
+		price                      float64
+		currency                   string
+		category                   string
+		location                   string
+		imageURL                   string
+		moderatorID                sql.NullInt64
+		moderatorPKH               string
+		moderator                  string
+		createdAt                  string
+		status                     string
+		shipsFromCountry           string
+		domesticShippingType       string
+		domesticShippingPrice      float64
+		internationalShippingType  string
+		internationalShippingPrice float64
+		shippingCurrency           string
+		shippingNotes              string
 	)
 
 	err := row.Scan(
@@ -456,6 +601,13 @@ func getListing(c *gin.Context) {
 		&moderator,
 		&createdAt,
 		&status,
+		&shipsFromCountry,
+		&domesticShippingType,
+		&domesticShippingPrice,
+		&internationalShippingType,
+		&internationalShippingPrice,
+		&shippingCurrency,
+		&shippingNotes,
 	)
 
 	if err != nil {
@@ -463,33 +615,49 @@ func getListing(c *gin.Context) {
 		return
 	}
 
-	listing["id"] = listingID
-	listing["user_id"] = userID
-	listing["seller"] = username
-	listing["seller_bch_address"] = bchAddress
-	listing["token_address"] = tokenAddress
-	listing["seller_token_address"] = tokenAddress
-	listing["title"] = title
-	listing["description"] = description
-	listing["price"] = price
-	listing["price_pusd"] = price
-	listing["currency"] = currency
-	listing["category"] = category
-	listing["location"] = location
-	listing["image_url"] = imageURL
-	listing["moderator_user_id"] = moderatorID.Int64
-	listing["moderator_pkh"] = moderatorPKH
-	listing["moderator"] = moderator
-	listing["created_at"] = createdAt
-	listing["status"] = status
+	var moderatorUserID any
+	if moderatorID.Valid {
+		moderatorUserID = moderatorID.Int64
+	}
 
-	c.JSON(http.StatusOK, listing)
+	c.JSON(http.StatusOK, gin.H{
+		"id":                   listingID,
+		"user_id":              userID,
+		"seller":               username,
+		"seller_bch_address":   bchAddress,
+		"token_address":        tokenAddress,
+		"seller_token_address": tokenAddress,
+
+		"title":       title,
+		"description": description,
+		"price":       price,
+		"price_pusd":  price,
+		"currency":    currency,
+		"category":    category,
+		"location":    location,
+		"image_url":   imageURL,
+
+		"moderator_user_id": moderatorUserID,
+		"moderator_pkh":     moderatorPKH,
+		"moderator":         moderator,
+
+		"created_at": createdAt,
+		"status":     status,
+
+		"ships_from_country":           shipsFromCountry,
+		"domestic_shipping_type":       domesticShippingType,
+		"domestic_shipping_price":      domesticShippingPrice,
+		"international_shipping_type":  internationalShippingType,
+		"international_shipping_price": internationalShippingPrice,
+		"shipping_currency":            shippingCurrency,
+		"shipping_notes":               shippingNotes,
+	})
 }
 
 const MUSDCategory = "b38a33f750f84c5c169a6f23cb873e6e79605021585d4f3408789689ed87f366"
 
 type CreateOrderRequest struct {
-	ListingID        uint64 `json:"listing_id"`
+	ListingID       uint64 `json:"listing_id"`
 	BuyerAddress    string `json:"buyer_address"`
 	ContractAddress string `json:"contract_address"`
 
@@ -529,16 +697,21 @@ func createOrder(c *gin.Context) {
 	}
 
 	var (
-		amount                 float64
+		itemAmount             float64
 		currency               string
 		sellerUserID           uint64
 		bchAddress             string
 		tokenAddress           string
 		listingModeratorUserID sql.NullInt64
 		listingModeratorPKH    sql.NullString
-	)
 
-	
+		shipsFromCountry           string
+		domesticShippingType       string
+		domesticShippingPrice      float64
+		internationalShippingType  string
+		internationalShippingPrice float64
+		shippingCurrency           string
+	)
 
 	err := db.QueryRow(`
 		SELECT
@@ -548,19 +721,33 @@ func createOrder(c *gin.Context) {
 			u.bch_address,
 			u.token_address,
 			l.moderator_user_id,
-			l.moderator_pkh
+			l.moderator_pkh,
+
+			COALESCE(l.ships_from_country, ''),
+			COALESCE(l.domestic_shipping_type, 'none'),
+			COALESCE(l.domestic_shipping_price, 0),
+			COALESCE(l.international_shipping_type, 'none'),
+			COALESCE(l.international_shipping_price, 0),
+			COALESCE(NULLIF(l.shipping_currency, ''), l.currency)
 		FROM listings l
 		JOIN users u ON u.id = l.user_id
 		WHERE l.id = ?
 		AND l.status = 'active'
 	`, req.ListingID).Scan(
-		&amount,
+		&itemAmount,
 		&currency,
 		&sellerUserID,
 		&bchAddress,
 		&tokenAddress,
 		&listingModeratorUserID,
 		&listingModeratorPKH,
+
+		&shipsFromCountry,
+		&domesticShippingType,
+		&domesticShippingPrice,
+		&internationalShippingType,
+		&internationalShippingPrice,
+		&shippingCurrency,
 	)
 
 	if err != nil {
@@ -574,26 +761,107 @@ func createOrder(c *gin.Context) {
 	}
 
 	currency = normalizeCurrency(currency)
+	shippingCurrency = normalizeCurrency(shippingCurrency)
+
+	if shippingCurrency == "" {
+		shippingCurrency = currency
+	}
+
+	if shippingCurrency != currency {
+		c.JSON(400, gin.H{
+			"error":             "shipping currency must match listing currency",
+			"listing_currency":  currency,
+			"shipping_currency": shippingCurrency,
+		})
+		return
+	}
+
+	domesticShippingType = strings.ToLower(strings.TrimSpace(domesticShippingType))
+	internationalShippingType = strings.ToLower(strings.TrimSpace(internationalShippingType))
+
+	if domesticShippingType == "" {
+		domesticShippingType = "none"
+	}
+
+	if internationalShippingType == "" {
+		internationalShippingType = "none"
+	}
+
+	shippingScope := "none"
+	shippingType := "none"
+	shippingAmount := 0.0
+
+	buyerCountry := strings.TrimSpace(req.ShippingCountry)
+	sellerCountry := strings.TrimSpace(shipsFromCountry)
+
+	hasShippingConfig := domesticShippingType != "none" || internationalShippingType != "none"
+
+	if hasShippingConfig {
+		if buyerCountry == "" {
+			c.JSON(400, gin.H{"error": "shipping_country is required"})
+			return
+		}
+
+		if sellerCountry == "" {
+			c.JSON(400, gin.H{"error": "listing ships_from_country is required"})
+			return
+		}
+
+		if strings.EqualFold(buyerCountry, sellerCountry) {
+			shippingScope = "domestic"
+			shippingType = domesticShippingType
+			shippingAmount = domesticShippingPrice
+		} else {
+			shippingScope = "international"
+			shippingType = internationalShippingType
+			shippingAmount = internationalShippingPrice
+		}
+
+		switch shippingType {
+		case "none":
+			c.JSON(400, gin.H{"error": "shipping is not available for this destination"})
+			return
+
+		case "free":
+			shippingAmount = 0
+
+		case "flat":
+			if shippingAmount < 0 {
+				c.JSON(400, gin.H{"error": "invalid shipping amount"})
+				return
+			}
+
+		case "calculated":
+			c.JSON(400, gin.H{"error": "shipping must be quoted by seller before checkout"})
+			return
+
+		default:
+			c.JSON(400, gin.H{"error": "invalid listing shipping type"})
+			return
+		}
+	}
+
+	totalAmount := itemAmount + shippingAmount
+	amount := totalAmount
 
 	escrowAmount := amountBaseUnits(currency, amount)
 	feeAmount := feeAmountBaseUnits(currency, amount)
 	tokenCategory := tokenCategoryForContract(currency)
+
 	feePKH := MarketplaceFeePKH
 	feeAddress := MarketplaceFeeAddress
-    feeTokenAddress := MarketplaceFeeTokenAddress
+	feeTokenAddress := MarketplaceFeeTokenAddress
 
 	if req.FeePKH != "" && req.FeePKH != feePKH {
 		c.JSON(400, gin.H{"error": "invalid fee pkh"})
 		return
 	}
 
-	// Frontend fee_amount is only informational.
-	// Backend is the source of truth.
 	if req.FeeAmount != 0 && req.FeeAmount != feeAmount {
 		c.JSON(400, gin.H{
-			"error": "invalid fee amount",
+			"error":               "invalid fee amount",
 			"frontend_fee_amount": req.FeeAmount,
-			"backend_fee_amount": feeAmount,
+			"backend_fee_amount":  feeAmount,
 		})
 		return
 	}
@@ -625,7 +893,14 @@ func createOrder(c *gin.Context) {
 			moderator_user_id,
 			moderator_pkh,
 			refund_locktime,
+
 			amount,
+			item_amount,
+			shipping_scope,
+			shipping_type,
+			shipping_amount,
+			total_amount,
+
 			currency,
 			expires_at,
 			shipping_name,
@@ -645,7 +920,7 @@ func createOrder(c *gin.Context) {
 			token_dust,
 			contract_version
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		req.ListingID,
 		buyerUserID,
@@ -658,7 +933,14 @@ func createOrder(c *gin.Context) {
 		moderatorUserID,
 		listingModeratorPKH.String,
 		req.RefundLocktime,
+
 		amount,
+		itemAmount,
+		shippingScope,
+		shippingType,
+		shippingAmount,
+		totalAmount,
+
 		currency,
 		expiresAt,
 		req.ShippingName,
@@ -687,9 +969,16 @@ func createOrder(c *gin.Context) {
 	orderID, _ := result.LastInsertId()
 
 	c.JSON(201, gin.H{
-		"order_id":          orderID,
-		"listing_id":        req.ListingID,
-		"buyer_user_id":     buyerUserID,
+		"order_id":      orderID,
+		"listing_id":    req.ListingID,
+		"buyer_user_id": buyerUserID,
+
+		"item_amount":     itemAmount,
+		"shipping_scope":  shippingScope,
+		"shipping_type":   shippingType,
+		"shipping_amount": shippingAmount,
+		"total_amount":    totalAmount,
+
 		"amount":            amount,
 		"currency":          currency,
 		"seller_address":    sellerAddress,
@@ -697,7 +986,7 @@ func createOrder(c *gin.Context) {
 		"contract_address":  req.ContractAddress,
 		"seller_pkh":        req.SellerPKH,
 		"buyer_pkh":         req.BuyerPKH,
-		"moderator_user_id": listingModeratorUserID.Int64,
+		"moderator_user_id": moderatorUserID,
 		"moderator_pkh":     listingModeratorPKH.String,
 		"refund_locktime":   req.RefundLocktime,
 		"payment_uri":       buildPaymentURI(paymentAddress, amount, currency),
@@ -753,16 +1042,16 @@ func listOrders(c *gin.Context) {
 	orders := []gin.H{}
 	for rows.Next() {
 		var (
-			orderID        uint64
-			listingID      uint64
-			listingTitle   string
-			buyerUsername  string
-			sellerUsername string
-			amount         float64
-			currency       string
-			status         string
-			disputeStatus  string
-			createdAt      string
+			orderID         uint64
+			listingID       uint64
+			listingTitle    string
+			buyerUsername   string
+			sellerUsername  string
+			amount          float64
+			currency        string
+			status          string
+			disputeStatus   string
+			createdAt       string
 			listingImageURL string
 		)
 
@@ -784,17 +1073,17 @@ func listOrders(c *gin.Context) {
 		}
 
 		orders = append(orders, gin.H{
-			"id":              orderID,
-			"listing_id":      listingID,
-			"listing_title":   listingTitle,
+			"id":                orderID,
+			"listing_id":        listingID,
+			"listing_title":     listingTitle,
 			"listing_image_url": listingImageURL,
-			"buyer_username":  buyerUsername,
-			"seller_username": sellerUsername,
-			"amount":          amount,
-			"currency":        currency,
-			"status":          status,
-			"dispute_status":  disputeStatus,
-			"created_at":      createdAt,
+			"buyer_username":    buyerUsername,
+			"seller_username":   sellerUsername,
+			"amount":            amount,
+			"currency":          currency,
+			"status":            status,
+			"dispute_status":    disputeStatus,
+			"created_at":        createdAt,
 		})
 	}
 
@@ -805,42 +1094,49 @@ func getOrder(c *gin.Context) {
 	id := c.Param("id")
 
 	var (
-		orderID              uint64
-		listingID            uint64
-		buyerUserID          sql.NullInt64
-		sellerUserID         uint64
-		buyerUsername        sql.NullString
-		sellerUsername       string
+		orderID        uint64
+		listingID      uint64
+		buyerUserID    sql.NullInt64
+		sellerUserID   uint64
+		buyerUsername  sql.NullString
+		sellerUsername string
 
-		listingTitle         string
-		listingDescription   string
-		listingImageURL      string
-		listingCategory      string
-		listingLocation      string
+		listingTitle       string
+		listingDescription string
+		listingImageURL    string
+		listingCategory    string
+		listingLocation    string
 
-		buyerAddress         string
-		sellerAddress        string
-		paymentAddress       string
-		sellerPkh            string
-		buyerPkh             string
-		moderatorUserID      sql.NullInt64
-		moderatorPkh         sql.NullString
-		refundLocktime       uint64
-		amount               float64
-		currency             string
-		status               string
-		disputeStatus        string
-		txid                 sql.NullString
+		buyerAddress    string
+		sellerAddress   string
+		paymentAddress  string
+		sellerPkh       string
+		buyerPkh        string
+		moderatorUserID sql.NullInt64
+		moderatorPkh    sql.NullString
+		refundLocktime  uint64
 
-		trackingNumber       sql.NullString
-		shippingCarrier      sql.NullString
-		shippedAt            sql.NullString
-		createdAt            string
-		updatedAt            string
+		amount         float64
+		itemAmount     float64
+		shippingScope  string
+		shippingType   string
+		shippingAmount float64
+		totalAmount    float64
 
-		claimTxid            sql.NullString
-		refundTxid           sql.NullString
-		moderatorTxid        sql.NullString
+		currency      string
+		status        string
+		disputeStatus string
+		txid          sql.NullString
+
+		trackingNumber  sql.NullString
+		shippingCarrier sql.NullString
+		shippedAt       sql.NullString
+		createdAt       string
+		updatedAt       string
+
+		claimTxid     sql.NullString
+		refundTxid    sql.NullString
+		moderatorTxid sql.NullString
 
 		shippingName         sql.NullString
 		shippingAddress1     sql.NullString
@@ -851,14 +1147,14 @@ func getOrder(c *gin.Context) {
 		shippingCountry      sql.NullString
 		shippingInstructions sql.NullString
 
-		feePKH               string
-		feeAmount            uint64
-		feeAddress           string
-		feeTokenAddress      string
-		tokenCategory        string
-		tokenDust            uint64
-		escrowAmount         uint64
-		contractVersion      string
+		feePKH          string
+		feeAmount       uint64
+		feeAddress      string
+		feeTokenAddress string
+		tokenCategory   string
+		tokenDust       uint64
+		escrowAmount    uint64
+		contractVersion string
 	)
 
 	err := db.QueryRow(`
@@ -884,7 +1180,14 @@ func getOrder(c *gin.Context) {
 			o.moderator_user_id,
 			o.moderator_pkh,
 			COALESCE(o.refund_locktime, 0) AS refund_locktime,
+
 			o.amount,
+			COALESCE(o.item_amount, o.amount) AS item_amount,
+			COALESCE(o.shipping_scope, 'none') AS shipping_scope,
+			COALESCE(o.shipping_type, 'none') AS shipping_type,
+			COALESCE(o.shipping_amount, 0) AS shipping_amount,
+			COALESCE(o.total_amount, o.amount) AS total_amount,
+
 			o.currency,
 			o.status,
 			COALESCE(o.dispute_status, 'none') AS dispute_status,
@@ -944,7 +1247,14 @@ func getOrder(c *gin.Context) {
 		&moderatorUserID,
 		&moderatorPkh,
 		&refundLocktime,
+
 		&amount,
+		&itemAmount,
+		&shippingScope,
+		&shippingType,
+		&shippingAmount,
+		&totalAmount,
+
 		&currency,
 		&status,
 		&disputeStatus,
@@ -1013,44 +1323,51 @@ func getOrder(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"id":                    orderID,
-		"listing_id":            listingID,
-		"listing_title":         listingTitle,
-		"listing_description":   listingDescription,
-		"listing_image_url":     listingImageURL,
-		"listing_category":      listingCategory,
-		"listing_location":      listingLocation,
+		"id":                  orderID,
+		"listing_id":          listingID,
+		"listing_title":       listingTitle,
+		"listing_description": listingDescription,
+		"listing_image_url":   listingImageURL,
+		"listing_category":    listingCategory,
+		"listing_location":    listingLocation,
 
-		"buyer_user_id":         buyerUserIDValue,
-		"seller_user_id":        sellerUserID,
-		"buyer_username":        buyerUsername.String,
-		"seller_username":       sellerUsername,
+		"buyer_user_id":   buyerUserIDValue,
+		"seller_user_id":  sellerUserID,
+		"buyer_username":  buyerUsername.String,
+		"seller_username": sellerUsername,
 
-		"buyer_address":         buyerAddress,
-		"seller_address":        sellerAddress,
-		"payment_address":       paymentAddress,
-		"seller_pkh":            sellerPkh,
-		"buyer_pkh":             buyerPkh,
-		"moderator_user_id":     moderatorUserIDValue,
-		"moderator_pkh":         moderatorPkh.String,
-		"refund_locktime":       refundLocktime,
+		"buyer_address":     buyerAddress,
+		"seller_address":    sellerAddress,
+		"payment_address":   paymentAddress,
+		"seller_pkh":        sellerPkh,
+		"buyer_pkh":         buyerPkh,
+		"moderator_user_id": moderatorUserIDValue,
+		"moderator_pkh":     moderatorPkh.String,
+		"refund_locktime":   refundLocktime,
 
-		"payment_uri":           buildPaymentURI(paymentAddress, amount, currency),
-		"amount":                amount,
-		"currency":              currency,
-		"status":                status,
-		"dispute_status":        disputeStatus,
-		"txid":                  txid.String,
+		"payment_uri": buildPaymentURI(paymentAddress, amount, currency),
 
-		"tracking_number":       trackingNumber.String,
-		"shipping_carrier":      shippingCarrier.String,
-		"shipped_at":            shippedAt.String,
-		"created_at":            createdAt,
-		"updated_at":            updatedAt,
+		"amount":          amount,
+		"item_amount":     itemAmount,
+		"shipping_scope":  shippingScope,
+		"shipping_type":   shippingType,
+		"shipping_amount": shippingAmount,
+		"total_amount":    totalAmount,
 
-		"claim_txid":            claimTxid.String,
-		"refund_txid":           refundTxid.String,
-		"moderator_txid":        moderatorTxid.String,
+		"currency":       currency,
+		"status":         status,
+		"dispute_status": disputeStatus,
+		"txid":           txid.String,
+
+		"tracking_number":  trackingNumber.String,
+		"shipping_carrier": shippingCarrier.String,
+		"shipped_at":       shippedAt.String,
+		"created_at":       createdAt,
+		"updated_at":       updatedAt,
+
+		"claim_txid":     claimTxid.String,
+		"refund_txid":    refundTxid.String,
+		"moderator_txid": moderatorTxid.String,
 
 		"shipping_name":         shippingName.String,
 		"shipping_address_1":    shippingAddress1.String,
@@ -1061,14 +1378,14 @@ func getOrder(c *gin.Context) {
 		"shipping_country":      shippingCountry.String,
 		"shipping_instructions": shippingInstructions.String,
 
-		"escrow_amount":         escrowAmount,
-		"fee_amount":            feeAmount,
-		"fee_pkh":               feePKH,
-		"fee_address":           feeAddress,
-		"fee_token_address":     feeTokenAddress,
-		"token_category":        tokenCategory,
-		"token_dust":            tokenDust,
-		"contract_version":      contractVersion,
+		"escrow_amount":     escrowAmount,
+		"fee_amount":        feeAmount,
+		"fee_pkh":           feePKH,
+		"fee_address":       feeAddress,
+		"fee_token_address": feeTokenAddress,
+		"token_category":    tokenCategory,
+		"token_dust":        tokenDust,
+		"contract_version":  contractVersion,
 	})
 }
 
@@ -1439,7 +1756,7 @@ func getUserProfile(c *gin.Context) {
 
 type UpdateOrderStatusRequest struct {
 	Status          string `json:"status"`
-	TrackingNumber string `json:"tracking_number"`
+	TrackingNumber  string `json:"tracking_number"`
 	ShippingCarrier string `json:"shipping_carrier"`
 }
 
@@ -1483,13 +1800,11 @@ func updateOrderStatus(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "order not found"})
 		return
 	}
-	
 
 	if req.Status == "shipped" && userID != sellerUserID {
 		c.JSON(403, gin.H{"error": "only seller can mark shipped"})
 		return
 	}
-
 
 	if req.Status == "cancelled" && userID != buyerUserID && userID != sellerUserID {
 		c.JSON(403, gin.H{"error": "not allowed"})
@@ -1766,8 +2081,6 @@ func recordClaim(c *gin.Context) {
 		return
 	}
 
-	
-
 	_, _ = db.Exec(`
 		UPDATE listings
 		SET status = 'sold'
@@ -1781,7 +2094,6 @@ func recordClaim(c *gin.Context) {
 		"claim_txid": req.Txid,
 	})
 }
-
 
 func recordRefund(c *gin.Context) {
 	userID := c.MustGet("user_id").(uint64)
@@ -2550,7 +2862,7 @@ func listConversations(c *gin.Context) {
 		var (
 			id, listingID, buyerUserID, sellerUserID uint64
 			title, buyerUsername, sellerUsername     string
-			updatedAt                               string
+			updatedAt                                string
 		)
 
 		if err := rows.Scan(
@@ -2715,7 +3027,6 @@ func userCanAccessConversation(userID uint64, conversationID string) bool {
 
 	return err == nil && exists > 0
 }
-
 
 func getMyNotifications(c *gin.Context) {
 	userID := c.MustGet("user_id").(uint64)

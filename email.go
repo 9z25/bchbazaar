@@ -80,20 +80,20 @@ func sendEmail(to string, subject string, body string) error {
 	return smtp.SendMail(
 		host+":"+port,
 		auth,
-		fromEmail,          // raw email only
-		[]string{toEmail},  // raw email only
+		fromEmail,         // raw email only
+		[]string{toEmail}, // raw email only
 		[]byte(message),
 	)
 }
 
 type OrderEmailData struct {
-	OrderID       uint64
-	ListingTitle  string
-	Amount        float64
-	Currency      string
-	BuyerEmail    string
-	SellerEmail   string
-	BuyerUsername string
+	OrderID        uint64
+	ListingTitle   string
+	Amount         float64
+	Currency       string
+	BuyerEmail     string
+	SellerEmail    string
+	BuyerUsername  string
 	SellerUsername string
 }
 

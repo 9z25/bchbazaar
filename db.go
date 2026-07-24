@@ -91,6 +91,15 @@ func migrateDB() {
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (moderator_user_id) REFERENCES users(id) ON DELETE SET NULL
 		);`,
+		`ALTER TABLE listings
+		ADD COLUMN ships_from_country VARCHAR(100) DEFAULT NULL AFTER image_url,
+		ADD COLUMN domestic_shipping_type ENUM('none','free','flat','calculated') NOT NULL DEFAULT 'none' AFTER ships_from_country,
+		ADD COLUMN domestic_shipping_price DECIMAL(18,8) NOT NULL DEFAULT 0 AFTER domestic_shipping_type,
+		ADD COLUMN international_shipping_type ENUM('none','free','flat','calculated') NOT NULL DEFAULT 'none' AFTER domestic_shipping_price,
+		ADD COLUMN international_shipping_price DECIMAL(18,8) NOT NULL DEFAULT 0 AFTER international_shipping_type,
+		ADD COLUMN shipping_currency VARCHAR(20) DEFAULT NULL AFTER international_shipping_price,
+		ADD COLUMN shipping_notes TEXT NULL AFTER shipping_currency,
+		ADD INDEX idx_ships_from_country (ships_from_country);`,
 
 		`CREATE TABLE IF NOT EXISTS orders (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -180,6 +189,12 @@ func migrateDB() {
 			FOREIGN KEY (buyer_user_id) REFERENCES users(id) ON DELETE SET NULL,
 			FOREIGN KEY (moderator_user_id) REFERENCES users(id) ON DELETE SET NULL
 		);`,
+		`ALTER TABLE orders
+			ADD COLUMN item_amount DECIMAL(18,8) DEFAULT NULL AFTER amount,
+			ADD COLUMN shipping_scope ENUM('none','domestic','international') NOT NULL DEFAULT 'none' AFTER item_amount,
+			ADD COLUMN shipping_type ENUM('none','free','flat','calculated') NOT NULL DEFAULT 'none' AFTER shipping_scope,
+			ADD COLUMN shipping_amount DECIMAL(18,8) NOT NULL DEFAULT 0 AFTER shipping_type,
+			ADD COLUMN total_amount DECIMAL(18,8) DEFAULT NULL AFTER shipping_amount;`,
 
 		`CREATE TABLE IF NOT EXISTS messages (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
