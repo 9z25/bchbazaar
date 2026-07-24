@@ -52,8 +52,8 @@ func main() {
 	r.GET("/api/conversations/:id/messages", authRequired, listConversationMessages)
 	r.POST("/api/conversations/:id/messages", authRequired, createConversationMessage)
 	r.GET("/l/:id", shareListingPage)
-	r.PUT("/listings/:id", authRequired, updateListing)
-	r.DELETE("/listings/:id", authRequired, deleteListing)
+	r.PUT("/api/listings/:id", authRequired, updateListing)
+	r.DELETE("/api/listings/:id", authRequired, deleteListing)
 
 	log.Println("BCHBazaar API running on :8080")
 
