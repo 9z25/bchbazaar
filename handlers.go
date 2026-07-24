@@ -3247,3 +3247,179 @@ func formatSharePrice(price float64, currency string) string {
 
 	return fmt.Sprintf("%g %s", price, cur)
 }
+
+func updateListing(c *gin.Context) {
+	userID := c.MustGet("user_id").(uint64)
+	listingID := c.Param("id")
+
+	var req CreateListingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var ownerID uint64
+	var status string
+
+	err := db.QueryRow(`
+		SELECT user_id, COALESCE(status, 'active')
+		FROM listings
+		WHERE id = ?
+	`, listingID).Scan(&ownerID, &status)
+
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "listing not found"})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if ownerID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "you can only edit your own listings"})
+		return
+	}
+
+	if status == "sold" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "sold listings cannot be edited"})
+		return
+	}
+
+	req.Currency = normalizeCurrency(req.Currency)
+	req.ShippingCurrency = normalizeCurrency(req.ShippingCurrency)
+
+	if req.ShippingCurrency == "" {
+		req.ShippingCurrency = req.Currency
+	}
+
+	req.DomesticShippingType = strings.ToLower(strings.TrimSpace(req.DomesticShippingType))
+	req.InternationalShippingType = strings.ToLower(strings.TrimSpace(req.InternationalShippingType))
+
+	if req.DomesticShippingType == "" {
+		req.DomesticShippingType = "none"
+	}
+
+	if req.InternationalShippingType == "" {
+		req.InternationalShippingType = "none"
+	}
+
+	validShippingType := func(t string) bool {
+		return t == "none" || t == "free" || t == "flat" || t == "calculated"
+	}
+
+	if !validShippingType(req.DomesticShippingType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid domestic_shipping_type"})
+		return
+	}
+
+	if !validShippingType(req.InternationalShippingType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid international_shipping_type"})
+		return
+	}
+
+	if req.DomesticShippingPrice < 0 || req.InternationalShippingPrice < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "shipping price cannot be negative"})
+		return
+	}
+
+	if req.DomesticShippingType != "flat" {
+		req.DomesticShippingPrice = 0
+	}
+
+	if req.InternationalShippingType != "flat" {
+		req.InternationalShippingPrice = 0
+	}
+
+	_, err = db.Exec(`
+		UPDATE listings
+		SET
+			title = ?,
+			description = ?,
+			price = ?,
+			currency = ?,
+			category = ?,
+			location = ?,
+			image_url = ?,
+			ships_from_country = ?,
+			domestic_shipping_type = ?,
+			domestic_shipping_price = ?,
+			international_shipping_type = ?,
+			international_shipping_price = ?,
+			shipping_currency = ?,
+			shipping_notes = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND user_id = ?
+	`,
+		req.Title,
+		req.Description,
+		req.Price,
+		req.Currency,
+		req.Category,
+		req.Location,
+		req.ImageURL,
+		req.ShipsFromCountry,
+		req.DomesticShippingType,
+		req.DomesticShippingPrice,
+		req.InternationalShippingType,
+		req.InternationalShippingPrice,
+		req.ShippingCurrency,
+		req.ShippingNotes,
+		listingID,
+		userID,
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "listing updated"})
+}
+func deleteListing(c *gin.Context) {
+	userID := c.MustGet("user_id").(uint64)
+	listingID := c.Param("id")
+
+	var ownerID uint64
+	var status string
+
+	err := db.QueryRow(`
+		SELECT user_id, COALESCE(status, 'active')
+		FROM listings
+		WHERE id = ?
+	`, listingID).Scan(&ownerID, &status)
+
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "listing not found"})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if ownerID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "you can only delete your own listings"})
+		return
+	}
+
+	if status == "sold" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "sold listings cannot be deleted"})
+		return
+	}
+
+	_, err = db.Exec(`
+		UPDATE listings
+		SET status = 'deleted', updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND user_id = ?
+	`, listingID, userID)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "listing deleted"})
+}
